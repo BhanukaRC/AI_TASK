@@ -1,0 +1,29 @@
+# Default ignored files
+/shelf/
+/.idea/*
+# Editor-based HTTP Client requests
+/httpRequests/
+# Environment-dependent path to Maven home directory
+/mavenHomeManager.xml
+# Datasource local storage ignored files
+/dataSources/
+/dataSources.local.xml
+node_modules
+
+# Configuration files with API keys
+interactive.mts
+
+# Environment files
+.env
+.env.backup
+.env.*.local
+
+# Cache and data files
+cache/
+*.json
+
+# PDF files
+*.pdf
+
+# Keep example environment file
+!.env.example
