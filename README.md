@@ -1,6 +1,7 @@
 # Prerequisites
 1. Create a Groq API key at [this link](https://console.groq.com/keys).
 2. Copy the key and add it at the top of the `index.mts` file inside `process.env.GROQ_API_KEY`.
+3. Make a folder called "resouces" and place your PDFs inside that.
 
 # Run the repo
 
