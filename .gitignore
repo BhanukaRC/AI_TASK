@@ -23,7 +23,7 @@ cache/
 *.json
 
 # PDF files
-*.pdf
+resources/*.pdf
 
 # Keep example environment file
 !.env.example
