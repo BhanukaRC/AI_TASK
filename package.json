@@ -1,0 +1,26 @@
+{
+  "name": "beamon-ai-test",
+  "version": "1.0.0",
+  "description": "Beamon AI take home test",
+  "main": "index.js",
+  "scripts": {
+    "dev": "npx tsx index.mts"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@langchain/community": "^0.3.49",
+    "@langchain/core": "^0.3.66",
+    "@langchain/groq": "^0.2.3",
+    "@langchain/langgraph": "^0.3.11",
+    "@langchain/openai": "^0.6.2",
+    "dotenv": "^16.4.5",
+    "langchain": "^0.3.30",
+    "openai": "^5.12.2",
+    "pdf-parse": "^1.1.1",
+    "zod": "^4.0.17"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0"
+  }
+}

@@ -20,7 +20,6 @@ interactive.mts
 
 # Cache and data files
 cache/
-*.json
 
 # Keep example environment file
 !.env.example
