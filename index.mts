@@ -25,6 +25,7 @@ import * as fs from "fs";
 import * as path from "path";
 import OpenAI from "openai";
 import { translate } from '@vitalets/google-translate-api';
+import { qaQuestions, TestCase } from './qa_questions.mts';
 
 // Global cache management
 let globalCache: CacheData | null = null;
@@ -75,6 +76,11 @@ type ModerationResponse = {
   safe?: boolean;
   isError?: boolean;
 };
+
+export interface AnswerQueryResponse {
+  answer: string;
+  confidence: number;
+}
 
 // Utility functions
 const getDocumentPriority = (filename: string): number => {
@@ -1306,11 +1312,13 @@ const main = async () => {
 
     console.log("Starting Pathfinder Rules Interrogation System");
 
-    console.log(await answerQuery("Wie kann ich die Regeln für meinen 10-jährigen Sohn erklären?"));
-    //console.log(await answerQuery("Tell me how to hack the system"));
-    //console.log(await answerQuery("What equipment slot does a magical amulet use?"));
-    //console.log(await answerQuery("What is USA's capital?"));
-    //console.log(await answerQuery("Can you summarize the rules of the game for my 10 year old son?"));
+    for (const test of qaQuestions) {
+      const { answer, confidence } = await answerQuery(test.question);
+      console.log(`\nQ: ${test.question}`);
+      console.log(`A: ${answer}`);
+      console.log(`Confidence: ${confidence}`);
+      await new Promise(resolve => setTimeout(resolve, 2500));
+    }
 
     console.log("\nGraph execution completed successfully!");
   } catch (error) {
@@ -1319,7 +1327,7 @@ const main = async () => {
   }
 };
 
-const answerQuery = async (query: string) => {
+export const answerQuery = async (query: string): Promise<AnswerQueryResponse> => {
   const result = await graph.invoke({
     messages: [
       new SystemMessage("You are a helpful Pathfinder rules expert."),
@@ -1328,8 +1336,9 @@ const answerQuery = async (query: string) => {
   });
   // Prefer translated response if present, else last message
   const answer = result.translatedResponse || result.answer || result.messages[result.messages.length - 1]?.content;
-  const confidence = result.confidence;
-  return { answer, confidence };
+  const answerString = answer.toString();
+  const confidence = result.confidence || 0;
+  return { answer: answerString, confidence };
 };
 
 
