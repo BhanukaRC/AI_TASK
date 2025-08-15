@@ -8,7 +8,7 @@ let failed = 0;
 
 (async () => {
   for (const [i, test] of testCases.entries()) {
-    console.log(`\nTest #${i + 1}: ${test.question}`);
+    console.log(`\nTest #${i + 1}: ${test.question || 'This is an empty question'}`);
     const { answer, confidence }: AnswerQueryResponse = await answerQuery(test.question);
     console.log(`Answer: ${answer}`);
     console.log(`Confidence: ${confidence}`);
@@ -38,7 +38,10 @@ let failed = 0;
       console.log('FAIL');
       failed++;
     }
-    await new Promise(resolve => setTimeout(resolve, 2500));
+    // To avoid rate limiting, wait 20 seconds between questions
+    if (i < testCases.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 2500));
+    }
   }
   console.log(`\nTest summary: ${passed} passed, ${failed} failed.`);
 })();
