@@ -22,8 +22,5 @@ interactive.mts
 cache/
 *.json
 
-# PDF files
-resources/*.pdf
-
 # Keep example environment file
 !.env.example
