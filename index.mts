@@ -1324,7 +1324,7 @@ const main = async () => {
       logBuffer.forEach(line => console.log(line));
       
       if (i < qaQuestions.length - 1) {
-        // To avoid rate limiting, wait 15 seconds between questions
+        // To avoid rate limiting, wait 2.5 seconds between questions
         await new Promise(resolve => setTimeout(resolve, 2500));
       }
     }

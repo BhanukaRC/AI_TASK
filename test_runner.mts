@@ -38,7 +38,7 @@ let failed = 0;
       console.log('FAIL');
       failed++;
     }
-    // To avoid rate limiting, wait 20 seconds between questions
+    // To avoid rate limiting, wait 2.5 seconds between questions
     if (i < testCases.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 2500));
     }

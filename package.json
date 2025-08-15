@@ -4,7 +4,8 @@
   "description": "Beamon AI take home test",
   "main": "index.js",
   "scripts": {
-    "dev": "npx tsx index.mts"
+    "dev": "npx tsx index.mts",
+    "test": "npx tsx test_runner.mts"
   },
   "author": "",
   "license": "ISC",
