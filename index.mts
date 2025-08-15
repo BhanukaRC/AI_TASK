@@ -1017,7 +1017,14 @@ IMPORTANT INSTRUCTIONS:
 - When citing rules, mention the source document (e.g., "According to the Core Rules..." or "The Advanced Player Guide states...")
 - If sources conflict, explain both versions and note which might take precedence
 - If the context doesn't contain enough information to answer the question, say so
-- Be clear about which source each piece of information comes from`
+- Be clear about which source each piece of information comes from
+
+- Respond in the following JSON format:
+    {"answer": "string, max 1000 characters", "confidence": 0-10}
+    - answer: concise answer, max 1000 characters
+    - confidence: your confidence in the answer, 0 (low) - 10 (high)
+    - If you cannot answer, set confidence to 0 and explain why in answer.
+    - If you are unsure about the answer, set confidence to 0 and explain why in answer.`
   );
 
   const userQuestion = state.userQuestion || "How can I help you?";
@@ -1029,11 +1036,25 @@ IMPORTANT INSTRUCTIONS:
       },
       { configurable: { thread_id: "42" } }
     );
-
+    // Expecting the LLM to return a JSON string with answer and confidence
     let aiResponse = agentNextState.messages;
-    // Only update state with the new answer in English
+    let answer: string = "";
+    let confidence: number = 0;
+    // Try to parse the last message as JSON
+    const lastMsg = aiResponse[aiResponse.length - 1]?.content?.toString() || "";
+    try {
+      const parsed = JSON.parse(lastMsg);
+      answer = (parsed.answer?.toString() || lastMsg).slice(0, 1000);
+      confidence = Number(parsed.confidence) || 0;
+    } catch {
+      // Fallback: treat the whole message as answer, confidence 0
+      answer = lastMsg.slice(0, 1000);
+      confidence = 0;
+    }
     return createStateUpdate(state, {
-      messages: aiResponse, // English response only
+      messages: aiResponse,
+      answer,
+      confidence,
       sentiment: "positive",
     });
   } catch (error) {
@@ -1213,6 +1234,14 @@ const StateAnnotation = Annotation.Root({
     value: (left: boolean, right: boolean) => right,
     default: () => false,
   }),
+  answer: Annotation<string>({
+    value: (left: string, right: string) => right,
+    default: () => '',
+  }),
+  confidence: Annotation<number>({
+    value: (left: number, right: number) => right,
+    default: () => 0,
+  }),
 });
 
 // Graph construction
@@ -1228,7 +1257,7 @@ const graph = graphBuilder
   .addNode('createVectorStore', createVectorStore)
   .addNode('saveCache', saveCache)
   .addNode('vectorSearchChunks', vectorSearchWithSources)
-  .addNode('answer', answerNode)
+  .addNode('generateAnswer', answerNode)
   .addNode('validateResponse', validateResponseNode)
   .addNode('translateResponse', translateResponseNode)
   .addEdge('__start__', 'detectAndTranslate')
@@ -1243,10 +1272,10 @@ const graph = graphBuilder
   .addEdge('chunkText', 'createVectorStore')
   .addEdge('createVectorStore', 'saveCache')
   .addEdge('saveCache', 'vectorSearchChunks')
-  .addEdge('vectorSearchChunks', 'answer')
-  .addEdge('answer', 'validateResponse')
+  .addEdge('vectorSearchChunks', 'generateAnswer')
+  .addEdge('generateAnswer', 'validateResponse')
   .addConditionalEdges('validateResponse', (state) =>
-    (state.retryCount || 0) < CONFIG.RETRY_COUNT && !state.poison ? 'translateResponse' : 'answer'
+    (state.retryCount || 0) < CONFIG.RETRY_COUNT && !state.poison ? 'translateResponse' : 'generateAnswer'
   )
   .addEdge('translateResponse', '__end__')
   .compile();
@@ -1282,7 +1311,10 @@ const answerQuery = async (query: string) => {
       new HumanMessage(query),
     ],
   });
-  return result.messages[result.messages.length - 1]?.content;
+  // Prefer translated response if present, else last message
+  const answer = result.translatedResponse || result.answer || result.messages[result.messages.length - 1]?.content;
+  const confidence = result.confidence;
+  return { answer, confidence };
 };
 
 
