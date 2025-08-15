@@ -225,6 +225,13 @@ const openAIModeration = async (text: string): Promise<ModerationResponse> => {
 };
 
 const groqModeration = async (text: string): Promise<ModerationResponse> => {
+  if (getFeatureFlags().DISABLE_GROQ_QUESTION_RELAVANCE_CHECK) {
+    console.log("Skipping Groq moderation check due to feature flag");
+    return {
+      safe: true,
+      isError: false,
+    };
+  }
 
   try {
     const systemPromt = `
@@ -243,6 +250,9 @@ const groqModeration = async (text: string): Promise<ModerationResponse> => {
 
       Context:
       ${text}
+
+      If you are not very sure, err on the side of caution and return "yes".
+      If you are unsure, return "yes".
 
       Return:
       "yes" or "no"

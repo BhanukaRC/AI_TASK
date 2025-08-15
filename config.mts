@@ -21,6 +21,7 @@ export const CONFIG = {
 
 export const getFeatureFlags = () => ({
   ENABLE_VECTOR_EMBEDDINGS: Boolean(process.env.OPENAI_API_KEY),
+  DISABLE_GROQ_QUESTION_RELAVANCE_CHECK: Boolean(process.env.DISABLE_GROQ_QUESTION_RELAVANCE_CHECK),
 });
 
 export const validateEnvironment = () => {
