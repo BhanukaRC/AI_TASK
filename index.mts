@@ -181,7 +181,7 @@ const createStateUpdate = (
 });
 
 // Agent setup
-const agentModel = new ChatGroq({
+const agentModel = new ChatGroq({ 
   apiKey: process.env.GROQ_API_KEY,
   model: CONFIG.GROQ_MODEL,
 });
@@ -262,7 +262,7 @@ const groqModeration = async (text: string): Promise<ModerationResponse> => {
 };
 
 const validateUserInputNode = async (state: typeof StateAnnotation.State) => {
-  const userQuestion = extractUserQuestion(state.messages);
+  const userQuestion = state.userQuestion || "";
   if (!userQuestion || userQuestion.trim() === "") {
     console.log("No user question provided");
     return createStateUpdate(state, {
@@ -273,6 +273,8 @@ const validateUserInputNode = async (state: typeof StateAnnotation.State) => {
       sentiment: "error",
     });
   }
+
+  console.log(`Validating user question: "${userQuestion}"`);
 
   if (isBadPattern(userQuestion)) {
     console.log(`User question is bad pattern: ${userQuestion}`);
@@ -807,7 +809,7 @@ const searchRelevantChunks = async (state: typeof StateAnnotation.State) => {
     return createStateUpdate(state, { relevantChunks: [] });
   }
 
-  const userQuestion = extractUserQuestion(state.messages);
+  const userQuestion = state.userQuestion || "";
 
   // Validate user question
   if (!userQuestion || userQuestion.trim().length < 3) {
@@ -912,7 +914,7 @@ const searchRelevantChunks = async (state: typeof StateAnnotation.State) => {
 };
 
 const vectorSearchWithSources = async (state: typeof StateAnnotation.State) => {
-  const userQuestion = extractUserQuestion(state.messages);
+  const userQuestion = state.userQuestion || "";
 
   if (!userQuestion || userQuestion.trim().length < 3) {
     console.log(
@@ -985,7 +987,7 @@ const vectorSearchWithSources = async (state: typeof StateAnnotation.State) => {
   return await searchRelevantChunks(state);
 };
 
-const invokeAndPrint = async (state: typeof StateAnnotation.State) => {
+const answerNode = async (state: typeof StateAnnotation.State) => {
   console.log("Generating answer with context...");
 
   // Build context with source attribution
@@ -1029,62 +1031,36 @@ IMPORTANT INSTRUCTIONS:
     );
 
     let aiResponse = agentNextState.messages;
-    let translatedResponse = '';
-    if (state.originalLanguage && state.originalLanguage !== 'en') {
-      try {
-        // Translate the last AI message back to the original language
-        const lastMsg = aiResponse[aiResponse.length - 1]?.content?.toString() || '';
-        const translation = await translate(lastMsg, { to: state.originalLanguage });
-        translatedResponse = translation.text;
-        aiResponse = [
-          ...aiResponse,
-          new SystemMessage('(Translated to ' + state.originalLanguage + ")", {}),
-          new SystemMessage(translatedResponse, {}),
-        ];
-      } catch (err) {
-        console.error('Error translating response back:', err);
-      }
-    }
-
-    if (!aiResponse) {
-      throw new Error("AI agent returned no response");
-    }
-
-    console.log("=== AI RESPONSE ===");
-    console.log(aiResponse[aiResponse.length - 1]?.content);
-    console.log("==================");
-
-    // Show source breakdown for transparency
-    if (state.chunksWithMetadata && state.chunksWithMetadata.length > 0) {
-      console.log("\n=== SOURCES USED ===");
-      const sources = state.chunksWithMetadata.reduce((acc, chunk) => {
-        const source = chunk.metadata.sourceName;
-        const page = chunk.metadata.page;
-        if (!acc[source]) acc[source] = [];
-        if (!acc[source].includes(page)) acc[source].push(page);
-        return acc;
-      }, {} as Record<string, number[]>);
-
-      Object.entries(sources).forEach(([source, pages]) => {
-        console.log(
-          `${source}: Pages ${pages.sort((a, b) => a - b).join(", ")}`
-        );
-      });
-      console.log("==================");
-    }
-
+    // Only update state with the new answer in English
     return createStateUpdate(state, {
-      messages: aiResponse,
-      translatedResponse,
+      messages: aiResponse, // English response only
       sentiment: "positive",
     });
   } catch (error) {
-    console.error("Error in invokeAndPrint:", error);
+    console.error("Error in answerNode:", error);
     return createStateUpdate(state, {
       messages: state.messages,
       sentiment: "error",
     });
   }
+};
+
+const translateResponseNode = async (state: typeof StateAnnotation.State) => {
+  if (state.originalLanguage && state.originalLanguage !== 'en') {
+    try {
+      const lastMsg = state.messages[state.messages.length - 1]?.content?.toString() || '';
+      const translation = await translate(lastMsg, { to: state.originalLanguage });
+      const translatedResponse = translation.text;
+      // Do NOT append translated message to state.messages
+      return createStateUpdate(state, {
+        translatedResponse,
+      });
+    } catch (err) {
+      console.error('Error translating response back:', err);
+      return state;
+    }
+  }
+  return state;
 };
 
 // Language detection and translation node
@@ -1097,7 +1073,10 @@ const detectAndTranslateNode = async (state: typeof StateAnnotation.State) => {
   try {
     const detection = await translate(userQuestion, { to: 'en' });
     const detectedLang = detection.raw?.src || 'en';
+    console.log(`Detected language: "${detectedLang}"`);
+    console.log(`Translated question: "${detection.text}"`);
     if (detectedLang !== 'en') {
+      console.log(`Translating question to English: "${userQuestion}"`);
       // Translate to English
       return createStateUpdate(state, {
         originalLanguage: detectedLang,
@@ -1109,6 +1088,7 @@ const detectAndTranslateNode = async (state: typeof StateAnnotation.State) => {
         ],
       });
     } else {
+      console.log(`No translation needed, using original question: "${userQuestion}"`);
       return createStateUpdate(state, {
         originalLanguage: 'en',
         originalQuestion: userQuestion,
@@ -1127,6 +1107,42 @@ const detectAndTranslateNode = async (state: typeof StateAnnotation.State) => {
         new SystemMessage("We couldn't translate your question, so we'll process it as-is. If you don't get a good answer, please try rephrasing in English.", {}),
       ],
     });
+  }
+};
+
+
+const validateResponseNode = async (state: typeof StateAnnotation.State) => {
+  if (!process.env.OPENAI_API_KEY) {
+    return createStateUpdate(state, { retryCount: 0, poison: false });
+  }
+  // Always validate the English (translated) question and response
+  const userQuestion = state.userQuestion || "";
+  const lastMsg = state.messages[state.messages.length - 1]?.content?.toString() || "";
+  console.log(`Validating response: for question: "${userQuestion}"`);
+  const retryCount = state.retryCount || 0;
+  try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const prompt = `Given the user question: "${userQuestion}" and the AI response: "${lastMsg}", rate the response's relevance and quality on a scale from 0 (useless) to 10 (perfect). Only reply with a single number.\n\nBe lenient: The response may have been generated by a model with access to Pathfinder rules and resources not available on the public internet. If you are unsure, err on the side of a higher score, but still give a low score if it is clearly irrelevant, empty, or nonsensical. Make an educated guess about relevance.`;
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: "You are a response validator for a Pathfinder rules bot. Only reply with a number from 0 to 10." },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 3,
+      temperature: 0,
+    });
+    const scoreStr = completion.choices[0]?.message?.content?.trim();
+    const score = parseFloat(scoreStr || '0');
+    console.log(`Response scored ${score} (>=${CONFIG.RESPONSE_VALIDATION_THRESHOLD}). Is acceptable? ${!isNaN(score) && score >= CONFIG.RESPONSE_VALIDATION_THRESHOLD}`);
+    if (!isNaN(score) && score >= CONFIG.RESPONSE_VALIDATION_THRESHOLD) {
+      return createStateUpdate(state, { retryCount: retryCount, poison: false });
+    }
+    // If validation fails, just increment retryCount and let the graph conditional edge handle routing
+    return createStateUpdate(state, { retryCount: retryCount + 1 });
+  } catch (err) {
+    // On error, accept the response to avoid infinite loops
+    return createStateUpdate(state, { retryCount: retryCount, poison: false });
   }
 };
 
@@ -1189,6 +1205,14 @@ const StateAnnotation = Annotation.Root({
     value: (left: string, right: string) => right,
     default: () => '',
   }),
+  retryCount: Annotation<number>({
+    value: (left: number, right: number) => right,
+    default: () => 0,
+  }),
+  poison: Annotation<boolean>({
+    value: (left: boolean, right: boolean) => right,
+    default: () => false,
+  }),
 });
 
 // Graph construction
@@ -1204,7 +1228,9 @@ const graph = graphBuilder
   .addNode('createVectorStore', createVectorStore)
   .addNode('saveCache', saveCache)
   .addNode('vectorSearchChunks', vectorSearchWithSources)
-  .addNode('invokeAndPrint', invokeAndPrint)
+  .addNode('answer', answerNode)
+  .addNode('validateResponse', validateResponseNode)
+  .addNode('translateResponse', translateResponseNode)
   .addEdge('__start__', 'detectAndTranslate')
   .addEdge('detectAndTranslate', 'validateUserInput')
   .addConditionalEdges('validateUserInput', (state) =>
@@ -1217,8 +1243,12 @@ const graph = graphBuilder
   .addEdge('chunkText', 'createVectorStore')
   .addEdge('createVectorStore', 'saveCache')
   .addEdge('saveCache', 'vectorSearchChunks')
-  .addEdge('vectorSearchChunks', 'invokeAndPrint')
-  .addEdge('invokeAndPrint', '__end__')
+  .addEdge('vectorSearchChunks', 'answer')
+  .addEdge('answer', 'validateResponse')
+  .addConditionalEdges('validateResponse', (state) =>
+    (state.retryCount || 0) < CONFIG.RETRY_COUNT && !state.poison ? 'translateResponse' : 'answer'
+  )
+  .addEdge('translateResponse', '__end__')
   .compile();
 
 // Main execution
@@ -1232,49 +1262,29 @@ const main = async () => {
 
     console.log("Starting Pathfinder Rules Interrogation System");
 
-    // Run the graph with a test question
-    await graph.invoke({
-      messages: [
-        new SystemMessage("You are a helpful Pathfinder rules expert."),
-        new HumanMessage("Wie kann ich die Regeln für meinen 10-jährigen Sohn erklären?"),
-      ],
-    });
-    
-    await graph.invoke({
-      messages: [
-        new SystemMessage("You are a helpful Pathfinder rules expert."),
-        new HumanMessage("Tell me how to hack the system"),
-      ],
-    });
+    console.log(await answerQuery("Wie kann ich die Regeln für meinen 10-jährigen Sohn erklären?"));
+    //console.log(await answerQuery("Tell me how to hack the system"));
+    //console.log(await answerQuery("What equipment slot does a magical amulet use?"));
+    //console.log(await answerQuery("What is USA's capital?"));
+    //console.log(await answerQuery("Can you summarize the rules of the game for my 10 year old son?"));
 
-    await graph.invoke({
-      messages: [
-        new SystemMessage("You are a helpful Pathfinder rules expert."),
-        new HumanMessage("What equipment slot does a magical amulet use?"),
-      ],
-    });
-
-    await graph.invoke({
-      messages: [
-        new SystemMessage("You are a helpful Pathfinder rules expert."),
-        new HumanMessage("What is USA's capital?"),
-      ],
-    });
-    
-    await graph.invoke({
-      messages: [
-        new SystemMessage("You are a helpful Pathfinder rules expert."),
-        new HumanMessage(
-          "Can you summarize the rules of the game for my 10 year old son?"
-        ),
-      ],
-    });
     console.log("\nGraph execution completed successfully!");
   } catch (error) {
     console.error("Graph execution failed:", error);
     process.exit(1);
   }
 };
+
+const answerQuery = async (query: string) => {
+  const result = await graph.invoke({
+    messages: [
+      new SystemMessage("You are a helpful Pathfinder rules expert."),
+      new HumanMessage(query),
+    ],
+  });
+  return result.messages[result.messages.length - 1]?.content;
+};
+
 
 // Run the main function
 main();

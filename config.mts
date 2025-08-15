@@ -9,7 +9,9 @@ export const CONFIG = {
   
   VECTOR_SEARCH_TOP_K: parseInt(process.env.VECTOR_SEARCH_TOP_K || "3"),
   KEYWORD_SEARCH_TOP_K: parseInt(process.env.KEYWORD_SEARCH_TOP_K || "3"),
-  
+  RESPONSE_VALIDATION_THRESHOLD: parseFloat(process.env.RESPONSE_VALIDATION_THRESHOLD || "5"),
+  RETRY_COUNT: parseInt(process.env.RETRY_COUNT || "3"),
+
   GROQ_MODEL: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
   
   RESOURCES_DIR: "./resources",
