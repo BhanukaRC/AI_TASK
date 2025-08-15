@@ -1312,12 +1312,21 @@ const main = async () => {
 
     console.log("Starting Pathfinder Rules Interrogation System");
 
-    for (const test of qaQuestions) {
-      const { answer, confidence } = await answerQuery(test.question);
+    for (const [i, test] of qaQuestions.entries()) {
+      const logBuffer: string[] = [];
+      const origLog = console.log;
+      console.log = (...args) => logBuffer.push(args.join(' '));
       console.log(`\nQ: ${test.question}`);
+      const { answer, confidence } = await answerQuery(test.question);
       console.log(`A: ${answer}`);
       console.log(`Confidence: ${confidence}`);
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      console.log = origLog;
+      logBuffer.forEach(line => console.log(line));
+      
+      if (i < qaQuestions.length - 1) {
+        // To avoid rate limiting, wait 15 seconds between questions
+        await new Promise(resolve => setTimeout(resolve, 2500));
+      }
     }
 
     console.log("\nGraph execution completed successfully!");
