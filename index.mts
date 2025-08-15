@@ -24,6 +24,7 @@ import { MemoryVectorStore } from "langchain/vectorstores/memory";
 import * as fs from "fs";
 import * as path from "path";
 import OpenAI from "openai";
+import { translate } from '@vitalets/google-translate-api';
 
 // Global cache management
 let globalCache: CacheData | null = null;
@@ -1027,13 +1028,30 @@ IMPORTANT INSTRUCTIONS:
       { configurable: { thread_id: "42" } }
     );
 
-    const aiResponse = agentNextState.messages.at(-1)?.content;
+    let aiResponse = agentNextState.messages;
+    let translatedResponse = '';
+    if (state.originalLanguage && state.originalLanguage !== 'en') {
+      try {
+        // Translate the last AI message back to the original language
+        const lastMsg = aiResponse[aiResponse.length - 1]?.content?.toString() || '';
+        const translation = await translate(lastMsg, { to: state.originalLanguage });
+        translatedResponse = translation.text;
+        aiResponse = [
+          ...aiResponse,
+          new SystemMessage('(Translated to ' + state.originalLanguage + ")", {}),
+          new SystemMessage(translatedResponse, {}),
+        ];
+      } catch (err) {
+        console.error('Error translating response back:', err);
+      }
+    }
+
     if (!aiResponse) {
       throw new Error("AI agent returned no response");
     }
 
     console.log("=== AI RESPONSE ===");
-    console.log(aiResponse);
+    console.log(aiResponse[aiResponse.length - 1]?.content);
     console.log("==================");
 
     // Show source breakdown for transparency
@@ -1056,7 +1074,8 @@ IMPORTANT INSTRUCTIONS:
     }
 
     return createStateUpdate(state, {
-      messages: agentNextState.messages,
+      messages: aiResponse,
+      translatedResponse,
       sentiment: "positive",
     });
   } catch (error) {
@@ -1064,6 +1083,49 @@ IMPORTANT INSTRUCTIONS:
     return createStateUpdate(state, {
       messages: state.messages,
       sentiment: "error",
+    });
+  }
+};
+
+// Language detection and translation node
+// Because LLMs are likely to perform better in English
+const detectAndTranslateNode = async (state: typeof StateAnnotation.State) => {
+  const userQuestion = extractUserQuestion(state.messages);
+  if (!userQuestion) {
+    return createStateUpdate(state, { originalLanguage: 'en', originalQuestion: '', userQuestion: '' });
+  }
+  try {
+    const detection = await translate(userQuestion, { to: 'en' });
+    const detectedLang = detection.raw?.src || 'en';
+    if (detectedLang !== 'en') {
+      // Translate to English
+      return createStateUpdate(state, {
+        originalLanguage: detectedLang,
+        originalQuestion: userQuestion,
+        userQuestion: detection.text,
+        messages: [
+          ...state.messages,
+          new SystemMessage('(Translated from ' + detectedLang + ")", {}),
+        ],
+      });
+    } else {
+      return createStateUpdate(state, {
+        originalLanguage: 'en',
+        originalQuestion: userQuestion,
+        userQuestion,
+      });
+    }
+  } catch (err) {
+    // If a translation fails, process the question as-is.
+    console.error('Language detection/translation error:', err);
+    return createStateUpdate(state, {
+      originalLanguage: 'en',
+      originalQuestion: userQuestion,
+      userQuestion,
+      messages: [
+        ...state.messages,
+        new SystemMessage("We couldn't translate your question, so we'll process it as-is. If you don't get a good answer, please try rephrasing in English.", {}),
+      ],
     });
   }
 };
@@ -1115,6 +1177,18 @@ const StateAnnotation = Annotation.Root({
     value: (left: DocumentChunk[], right: DocumentChunk[]) => right,
     default: () => [],
   }),
+  originalLanguage: Annotation<string>({
+    value: (left: string, right: string) => right,
+    default: () => 'en',
+  }),
+  originalQuestion: Annotation<string>({
+    value: (left: string, right: string) => right,
+    default: () => '',
+  }),
+  translatedResponse: Annotation<string>({
+    value: (left: string, right: string) => right,
+    default: () => '',
+  }),
 });
 
 // Graph construction
@@ -1122,27 +1196,29 @@ const graphBuilder = new StateGraph(StateAnnotation);
 
 // graph structure
 const graph = graphBuilder
-  .addNode("validateUserInput", validateUserInputNode)
-  .addNode("checkCache", checkCache)
-  .addNode("loadPDF", loadMultiplePDFs)
-  .addNode("chunkText", chunkTextWithMetadata)
-  .addNode("createVectorStore", createVectorStore)
-  .addNode("saveCache", saveCache)
-  .addNode("vectorSearchChunks", vectorSearchWithSources)
-  .addNode("invokeAndPrint", invokeAndPrint)
-  .addEdge("__start__", "validateUserInput")
-  .addConditionalEdges("validateUserInput", (state) =>
-    state.sentiment === "error" ? "__end__" : "checkCache"
+  .addNode('detectAndTranslate', detectAndTranslateNode)
+  .addNode('validateUserInput', validateUserInputNode)
+  .addNode('checkCache', checkCache)
+  .addNode('loadPDF', loadMultiplePDFs)
+  .addNode('chunkText', chunkTextWithMetadata)
+  .addNode('createVectorStore', createVectorStore)
+  .addNode('saveCache', saveCache)
+  .addNode('vectorSearchChunks', vectorSearchWithSources)
+  .addNode('invokeAndPrint', invokeAndPrint)
+  .addEdge('__start__', 'detectAndTranslate')
+  .addEdge('detectAndTranslate', 'validateUserInput')
+  .addConditionalEdges('validateUserInput', (state) =>
+    state.sentiment === 'error' ? '__end__' : 'checkCache'
   )
-  .addConditionalEdges("checkCache", (state) =>
-    state.cacheUsed ? "createVectorStore" : "loadPDF"
+  .addConditionalEdges('checkCache', (state) =>
+    state.cacheUsed ? 'createVectorStore' : 'loadPDF'
   )
-  .addEdge("loadPDF", "chunkText")
-  .addEdge("chunkText", "createVectorStore")
-  .addEdge("createVectorStore", "saveCache")
-  .addEdge("saveCache", "vectorSearchChunks")
-  .addEdge("vectorSearchChunks", "invokeAndPrint")
-  .addEdge("invokeAndPrint", "__end__")
+  .addEdge('loadPDF', 'chunkText')
+  .addEdge('chunkText', 'createVectorStore')
+  .addEdge('createVectorStore', 'saveCache')
+  .addEdge('saveCache', 'vectorSearchChunks')
+  .addEdge('vectorSearchChunks', 'invokeAndPrint')
+  .addEdge('invokeAndPrint', '__end__')
   .compile();
 
 // Main execution
@@ -1157,7 +1233,13 @@ const main = async () => {
     console.log("Starting Pathfinder Rules Interrogation System");
 
     // Run the graph with a test question
-
+    await graph.invoke({
+      messages: [
+        new SystemMessage("You are a helpful Pathfinder rules expert."),
+        new HumanMessage("Wie kann ich die Regeln für meinen 10-jährigen Sohn erklären?"),
+      ],
+    });
+    
     await graph.invoke({
       messages: [
         new SystemMessage("You are a helpful Pathfinder rules expert."),
