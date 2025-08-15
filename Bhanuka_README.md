@@ -15,7 +15,7 @@
 4. Run: `pnpm run dev`
 5. You can also run a custom test suite I made with `pnpm run test`;
 
-Note: It is likely that the Groq API Rate Limits are hit when running the queries all at once. Therefore, I have commented a few of the tests I added in `qa_questions.mts` and have added a custom timeout in each script. Please feel free to uncomment all the test cases and increase the timeout if necessary. Console logging in the test script may appear out of order due to asynchronous execution, but this is handled in the `main` function of `index.mts`.
+Note: It is likely that the Groq API Rate Limits, Google Translate API Rate Limits are hit when running the queries all at once. Therefore, I have commented a few of the tests I added in `qa_questions.mts` and have added a custom timeout in each script. Please feel free to uncomment all the test cases and increase the timeout if necessary. Console logging in the test script may appear out of order due to asynchronous execution, but this is handled in the `main` function of `index.mts`.
 
 ---
 
