@@ -1134,9 +1134,8 @@ const detectAndTranslateNode = async (state: typeof StateAnnotation.State) => {
 
 const validateResponseNode = async (state: typeof StateAnnotation.State) => {
   if (!process.env.OPENAI_API_KEY) {
-    return createStateUpdate(state, { retryCount: 0, poison: false });
+    return createStateUpdate(state, { retryCount: 0,  validated: true });
   }
-  // Always validate the English (translated) question and response
   const userQuestion = state.userQuestion || "";
   const lastMsg = state.messages[state.messages.length - 1]?.content?.toString() || "";
   console.log(`Validating response: for question: "${userQuestion}"`);
@@ -1155,16 +1154,28 @@ const validateResponseNode = async (state: typeof StateAnnotation.State) => {
     });
     const scoreStr = completion.choices[0]?.message?.content?.trim();
     const score = parseFloat(scoreStr || '0');
-    console.log(`Response scored ${score} (>=${CONFIG.RESPONSE_VALIDATION_THRESHOLD}). Is acceptable? ${!isNaN(score) && score >= CONFIG.RESPONSE_VALIDATION_THRESHOLD}`);
+    console.log(`Response scored ${score} (>=${CONFIG.RESPONSE_VALIDATION_THRESHOLD}).`);
     if (!isNaN(score) && score >= CONFIG.RESPONSE_VALIDATION_THRESHOLD) {
-      return createStateUpdate(state, { retryCount: retryCount, poison: false });
+      return createStateUpdate(state, { retryCount: 0, validated: true });
     }
     // If validation fails, just increment retryCount and let the graph conditional edge handle routing
-    return createStateUpdate(state, { retryCount: retryCount + 1 });
+    return createStateUpdate(state, { retryCount: retryCount + 1, validated: false });
   } catch (err) {
     // On error, accept the response to avoid infinite loops
-    return createStateUpdate(state, { retryCount: retryCount, poison: false });
+    return createStateUpdate(state, { retryCount: retryCount, validated: true });
   }
+};
+
+const handlePoisonMessageNode = async (state: typeof StateAnnotation.State) => {
+  console.log(`Retry count has reached ${state.retryCount}. Labeling as poison.`);
+
+  const failureMessage = new SystemMessage(
+    `Failed to process the query after ${state.retryCount} retries. Please rephrase your question or try again later.`
+  );
+
+  return createStateUpdate(state, {
+    messages: [...state.messages, failureMessage],
+  });
 };
 
 // State definition
@@ -1230,10 +1241,6 @@ const StateAnnotation = Annotation.Root({
     value: (left: number, right: number) => right,
     default: () => 0,
   }),
-  poison: Annotation<boolean>({
-    value: (left: boolean, right: boolean) => right,
-    default: () => false,
-  }),
   answer: Annotation<string>({
     value: (left: string, right: string) => right,
     default: () => '',
@@ -1241,6 +1248,10 @@ const StateAnnotation = Annotation.Root({
   confidence: Annotation<number>({
     value: (left: number, right: number) => right,
     default: () => 0,
+  }),
+  validated: Annotation<boolean>({
+    value: (left: boolean, right: boolean) => right,
+    default: () => false,
   }),
 });
 
@@ -1260,8 +1271,10 @@ const graph = graphBuilder
   .addNode('generateAnswer', answerNode)
   .addNode('validateResponse', validateResponseNode)
   .addNode('translateResponse', translateResponseNode)
+  .addNode('handlePoisonMessageNode', handlePoisonMessageNode)
   .addEdge('__start__', 'detectAndTranslate')
   .addEdge('detectAndTranslate', 'validateUserInput')
+  .addEdge('handlePoisonMessageNode', '__end__')
   .addConditionalEdges('validateUserInput', (state) =>
     state.sentiment === 'error' ? '__end__' : 'checkCache'
   )
@@ -1274,9 +1287,11 @@ const graph = graphBuilder
   .addEdge('saveCache', 'vectorSearchChunks')
   .addEdge('vectorSearchChunks', 'generateAnswer')
   .addEdge('generateAnswer', 'validateResponse')
-  .addConditionalEdges('validateResponse', (state) =>
-    (state.retryCount || 0) < CONFIG.RETRY_COUNT && !state.poison ? 'translateResponse' : 'generateAnswer'
-  )
+  .addConditionalEdges('validateResponse', (state) => {
+    if (state.validated) return 'translateResponse';
+    if ((state.retryCount || 0) < CONFIG.RETRY_COUNT) return 'generateAnswer';
+    return 'handlePoisonMessageNode';
+  })
   .addEdge('translateResponse', '__end__')
   .compile();
 
