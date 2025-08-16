@@ -1,9 +1,11 @@
 # Pathfinder Rules Interrogation System
 
+![Graph Diagram](graph%20diagram.png)
+
 ## Assignment Submission – Bhanuka Siriwardana
 
 > **AI Assistance Disclosure:**
-> I used AI (OpenAI GPT-4 via Cursor, Claude AI) as a coding assistant throughout the development of this project. The design decisions were all taken by me. All architectural decisions, code, and documentation were reviewed and finalized by me, but AI was leveraged for brainstorming, code generation, and best-practice validation. I take the full responsibility of the code.
+> I used AI (Cursor, Claude AI) as a coding assistant throughout the development of this project. The design decisions were all taken by me. All architectural decisions, code, and documentation were reviewed and finalized by me, but AI was leveraged for brainstorming, code generation, and best-practice validation. I take the full responsibility of the code.
 
 ---
 
