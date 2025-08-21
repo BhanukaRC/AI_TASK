@@ -438,7 +438,7 @@ const checkCache = async (state: typeof StateAnnotation.State) => {
       return createStateUpdate(state, {
         chunks: cached.chunks,
         chunksWithMetadata: cached.chunksWithMetadata,
-        documentChunks: cached.chunksWithMetadata, // For compatibility
+        documentChunks: cached.chunksWithMetadata, 
         cacheUsed: true,
       });
     }
@@ -683,6 +683,8 @@ const createVectorStore = async (state: typeof StateAnnotation.State) => {
   if (!getFeatureFlags().ENABLE_VECTOR_EMBEDDINGS) {
     console.log("Vector embeddings disabled - skipping vector store creation");
     return createStateUpdate(state, { vectorStore: null });
+  } else {
+    console.log("Vector embeddings enabled - creating vector store");
   }
 
   if (!state.chunks || state.chunks.length === 0) {
@@ -1294,9 +1296,18 @@ const graph = graphBuilder
   .addConditionalEdges('validateUserInput', (state) =>
     state.sentiment === 'error' ? '__end__' : 'checkCache'
   )
-  .addConditionalEdges('checkCache', (state) =>
-    state.cacheUsed ? 'createVectorStore' : 'loadPDF'
-  )
+  .addConditionalEdges('checkCache', (state) => {
+    if (state.cacheUsed && state.vectorStore) {
+      // Vector store already exists in state, skip creation
+      return 'vectorSearchChunks';
+    }
+    if (state.cacheUsed) {
+      // Cache is valid but no vector store in state, create one
+      return 'createVectorStore';
+    }
+    // No cache, load PDFs
+    return 'loadPDF';
+  })
   .addEdge('loadPDF', 'chunkText')
   .addEdge('chunkText', 'createVectorStore')
   .addEdge('createVectorStore', 'saveCache')
@@ -1321,7 +1332,7 @@ const main = async () => {
     await ensureDirectoriesExist();
 
     console.log("Starting Pathfinder Rules Interrogation System");
-
+    
     for (const [i, test] of qaQuestions.entries()) {
       const logBuffer: string[] = [];
       const origLog = console.log;
@@ -1347,12 +1358,15 @@ const main = async () => {
 };
 
 export const answerQuery = async (query: string): Promise<AnswerQueryResponse> => {
-  const result = await graph.invoke({
-    messages: [
-      new SystemMessage("You are a helpful Pathfinder rules expert."),
-      new HumanMessage(query),
-    ],
-  });
+  const result = await graph.invoke(
+    {
+      messages: [
+        new SystemMessage("You are a helpful Pathfinder rules expert."),
+        new HumanMessage(query),
+      ],
+    }
+  );
+
   // Prefer translated response if present, else last message
   const answer = result.translatedResponse || result.answer || result.messages[result.messages.length - 1]?.content;
   const answerString = answer.toString();
