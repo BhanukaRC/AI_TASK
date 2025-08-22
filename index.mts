@@ -26,9 +26,11 @@ import * as path from "path";
 import OpenAI from "openai";
 import { translate } from '@vitalets/google-translate-api';
 import { qaQuestions, TestCase } from './qa_questions.mts';
+import crypto from 'crypto';
 
 // Global cache management
 let globalCache: CacheData | null = null;
+let globalVectorStore: any = null;
 
 // Types
 interface ChunkWithScore {
@@ -443,6 +445,10 @@ const checkCache = async (state: typeof StateAnnotation.State) => {
       });
     }
 
+    // Cache needs update - invalidate global vector store
+    console.log("Cache needs update, invalidating global vector store");
+    globalVectorStore = null;
+
     console.log("Cache needs update, will process changed/new documents");
     return createStateUpdate(state, { cacheUsed: false });
   } catch (error) {
@@ -699,6 +705,11 @@ const createVectorStore = async (state: typeof StateAnnotation.State) => {
       return createStateUpdate(state, { vectorStore: null });
     }
 
+    if (globalVectorStore) {
+      console.log("Using existing vector store");
+      return createStateUpdate(state, { vectorStore: globalVectorStore });
+    }
+
     const embeddings = new OpenAIEmbeddings({
       openAIApiKey: process.env.OPENAI_API_KEY,
     });
@@ -715,6 +726,7 @@ const createVectorStore = async (state: typeof StateAnnotation.State) => {
     );
 
     console.log("Vector store created successfully!");
+    globalVectorStore = vectorStore;
 
     return createStateUpdate(state, { vectorStore });
   } catch (error) {
@@ -1013,8 +1025,10 @@ const answerNode = async (state: typeof StateAnnotation.State) => {
   if (state.relevantChunks && state.relevantChunks.length > 0) {
     contextText = "Here are the relevant rules:\n\n";
 
-    state.relevantChunks.forEach((chunk, index) => {
-      const chunkMetadata = state.chunksWithMetadata?.[index];
+    state.relevantChunks.forEach((chunk) => {
+      const chunkMetadata = state.chunksWithMetadata?.find(
+        (metaChunk) => metaChunk.content === chunk
+      );
       const sourceInfo = chunkMetadata
         ? `[Source: ${chunkMetadata.metadata.sourceName}, Page ${chunkMetadata.metadata.page}]`
         : `[Source: Unknown]`;
@@ -1039,7 +1053,7 @@ IMPORTANT INSTRUCTIONS:
 
 - Respond in the following JSON format:
     {"answer": "string, max 1000 characters", "confidence": 0-10}
-    - answer: concise answer, max 1000 characters
+    - answer: detailed answer, max 1000 characters
     - confidence: your confidence in the answer, 0 (low) - 10 (high)
     - If you cannot answer, set confidence to 0 and explain why in answer.
     - If you are unsure about the answer, set confidence to 0 and explain why in answer.`
@@ -1048,11 +1062,12 @@ IMPORTANT INSTRUCTIONS:
   const userQuestion = state.userQuestion || "How can I help you?";
 
   try {
+    console.log(`Thread ID: ${state.threadId}`);
     const agentNextState = await agent.invoke(
       {
         messages: [systemWithContext, new HumanMessage(userQuestion)],
       },
-      { configurable: { thread_id: "42" } }
+      { configurable: { thread_id: state.threadId } }
     );
     // Expecting the LLM to return a JSON string with answer and confidence
     let aiResponse = agentNextState.messages;
@@ -1271,13 +1286,13 @@ const StateAnnotation = Annotation.Root({
     value: (left: boolean, right: boolean) => right,
     default: () => false,
   }),
+  threadId: Annotation<string>({
+    value: (left: string, right: string) => right,
+    default: () => crypto.randomUUID(),
+  }),
 });
 
-// Graph construction
-const graphBuilder = new StateGraph(StateAnnotation);
-
-// graph structure
-const graph = graphBuilder
+const graphBuilder = new StateGraph(StateAnnotation)
   .addNode('detectAndTranslate', detectAndTranslateNode)
   .addNode('validateUserInput', validateUserInputNode)
   .addNode('checkCache', checkCache)
@@ -1320,7 +1335,8 @@ const graph = graphBuilder
     return 'handlePoisonMessageNode';
   })
   .addEdge('translateResponse', '__end__')
-  .compile();
+
+const graph = graphBuilder.compile();
 
 // Main execution
 const main = async () => {
