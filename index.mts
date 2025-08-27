@@ -86,7 +86,7 @@ export interface AnswerQueryResponse {
 
 // Utility functions
 const getDocumentPriority = (filename: string): number => {
-  // Only a PoC for this assignment. Not a real priority system.
+  // Simple priority system for document processing.
   const name = filename.toLowerCase();
   if (name.includes("core") || name.includes("basic")) return 10;
   if (name.includes("advanced") || name.includes("rule")) return 7;
@@ -891,7 +891,7 @@ const searchRelevantChunks = async (state: typeof StateAnnotation.State) => {
   console.log(`Looking for keywords: ${questionKeywords.join(", ")}`);
 
   // Enhanced chunk scoring with better relevance calculation
-  // Consider this a PoC for the assignment. Not a real scoring system.
+  // Simple scoring system for content relevance.
   const scoredChunks: ChunkWithScore[] = state.chunks.map((chunk, index) => {
     const chunkLower: string = chunk.toLowerCase();
     let score: number = 0;
@@ -1039,7 +1039,7 @@ const answerNode = async (state: typeof StateAnnotation.State) => {
 
   // Enhanced system prompt that handles conflicts naturally
   const systemWithContext = new SystemMessage(
-    `You are a helpful Pathfinder rules expert. 
+    `    You are a helpful Pathfinder rules expert. 
 Use the provided rules context to answer questions accurately.
 
 ${contextText}

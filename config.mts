@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 
 export const CONFIG = {
-  PDF_PATH: process.env.PDF_PATH || "./resources/testfile.pdf",
+  PDF_PATH: process.env.PDF_PATH || "./resources/documents.pdf",
   CACHE_PATH: process.env.CACHE_PATH || "./cache/pdf_cache.json",
   
   CHUNK_SIZE: parseInt(process.env.CHUNK_SIZE || "1000"),

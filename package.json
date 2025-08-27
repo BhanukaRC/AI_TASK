@@ -1,7 +1,7 @@
 {
-  "name": "beamon-ai-test",
+  "name": "document-qa-system",
   "version": "1.0.0",
-  "description": "Beamon AI take home test",
+  "description": "A document Q&A system using LangGraph and AI models",
   "main": "index.js",
   "scripts": {
     "dev": "npx tsx index.mts",
